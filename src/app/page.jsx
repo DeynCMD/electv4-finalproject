@@ -10,53 +10,66 @@ import { CustomerSearchBar } from "@/components/customer/CustomerSearchBar";
 import { FeaturedPanel } from "@/components/customer/FeaturedPanel";
 import { ProductCard } from "@/components/customer/ProductCard";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
-import { customerCategories, customerProducts } from "@/data/customerProducts";
 
 function generatePickupNumber() {
   const sequence = String(Math.floor(1000 + Math.random() * 9000));
-
   return `BREW-${sequence}`;
 }
 
 export default function CustomerLandingPage() {
   const [selectedCategory, setSelectedCategory] = useState("All");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [cartItems, setCartItems] = useState([]);
-  const [orderMessage, setOrderMessage] = useState("");
-  const [pickupNumber, setPickupNumber] = useState("Pending");
+  const [searchQuery, setSearchQuery]           = useState("");
+  const [cartItems, setCartItems]               = useState([]);
+  const [orderMessage, setOrderMessage]         = useState("");
+  const [pickupNumber, setPickupNumber]         = useState("Pending");
+  const [products, setProducts]                 = useState([]);
+  const [categories, setCategories]             = useState(["All"]);
+  const [loading, setLoading]                   = useState(true);
 
   useEffect(() => {
     setPickupNumber(generatePickupNumber());
   }, []);
 
+  useEffect(() => {
+    fetch("/api/products")
+      .then((r) => r.json())
+      .then((data) => {
+        if (!Array.isArray(data)) return;
+        setProducts(data);
+        const unique = ["All", ...new Set(data.map((p) => p.category))];
+        setCategories(unique);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
   const filteredProducts = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-
-    return customerProducts.filter((product) => {
+    return products.filter((product) => {
       const matchesCategory = selectedCategory === "All" || product.category === selectedCategory;
-      const matchesSearch = !query || `${product.name} ${product.category}`.toLowerCase().includes(query);
+      const matchesSearch   = !query || `${product.name} ${product.category}`.toLowerCase().includes(query);
       return matchesCategory && matchesSearch;
     });
-  }, [selectedCategory, searchQuery]);
+  }, [selectedCategory, searchQuery, products]);
 
   function handleAdd(product) {
     setOrderMessage("");
     setCartItems((currentItems) => {
       const existingItem = currentItems.find((item) => item.id === product.id);
-
       if (existingItem) {
         return currentItems.map((item) =>
           item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
         );
       }
-
       return [...currentItems, { ...product, quantity: 1 }];
     });
   }
 
   function handleIncrease(productId) {
     setCartItems((currentItems) =>
-      currentItems.map((item) => (item.id === productId ? { ...item, quantity: item.quantity + 1 } : item))
+      currentItems.map((item) =>
+        item.id === productId ? { ...item, quantity: item.quantity + 1 } : item
+      )
     );
   }
 
@@ -72,10 +85,27 @@ export default function CustomerLandingPage() {
     setCartItems((currentItems) => currentItems.filter((item) => item.id !== productId));
   }
 
-  function handleCheckout() {
+  async function handleCheckout() {
     if (!cartItems.length) {
       setOrderMessage("Choose an item to start your picks.");
       return;
+    }
+
+    const totalAmount = cartItems.reduce((sum, item) => {
+      const price = typeof item.price === "string"
+        ? parseFloat(item.price.replace(/[^0-9.]/g, ""))
+        : Number(item.price);
+      return sum + price * item.quantity;
+    }, 0);
+
+    try {
+      await fetch("/api/customer-orders", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ pickupNumber, items: cartItems, totalAmount }),
+      });
+    } catch (err) {
+      console.error("Checkout save failed:", err);
     }
 
     setOrderMessage(`Pickup number ${pickupNumber} is ready. Please proceed to the counter.`);
@@ -100,7 +130,10 @@ export default function CustomerLandingPage() {
               Today&apos;s Picks
             </div>
             <ThemeToggle />
-            <button className="relative flex h-11 w-11 items-center justify-center rounded-full bg-white text-[#0b5b38] shadow-sm dark:bg-[#13241b] dark:text-white" aria-label="Notifications">
+            <button
+              className="relative flex h-11 w-11 items-center justify-center rounded-full bg-white text-[#0b5b38] shadow-sm dark:bg-[#13241b] dark:text-white"
+              aria-label="Notifications"
+            >
               <Bell size={18} aria-hidden="true" />
               <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-[#ff5b55] ring-2 ring-white" />
             </button>
@@ -159,27 +192,33 @@ export default function CustomerLandingPage() {
 
               <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <CategoryTabs
-                  categories={customerCategories}
+                  categories={categories}
                   selectedCategory={selectedCategory}
                   onSelect={setSelectedCategory}
                 />
                 <div className="text-sm font-semibold text-[#5e6d61] dark:text-emerald-100">
-                  {filteredProducts.length} items shown
+                  {loading ? "Loading…" : `${filteredProducts.length} items shown`}
                 </div>
               </div>
             </div>
 
-            <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-              {filteredProducts.map((product) => (
-                <ProductCard key={product.id} product={product} onAdd={handleAdd} />
-              ))}
-            </section>
+            {loading ? (
+              <div className="flex items-center justify-center py-20 text-sm font-semibold text-[#5e6d61] dark:text-emerald-100/60">
+                Loading menu…
+              </div>
+            ) : (
+              <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+                {filteredProducts.map((product) => (
+                  <ProductCard key={product.id} product={product} onAdd={handleAdd} />
+                ))}
+              </section>
+            )}
           </div>
 
           <CustomerOrderPreview
             pickupNumber={pickupNumber}
             items={cartItems}
-            fallbackProducts={customerProducts.slice(0, 3)}
+            fallbackProducts={products.slice(0, 3)}
             message={orderMessage}
             onIncrease={handleIncrease}
             onDecrease={handleDecrease}

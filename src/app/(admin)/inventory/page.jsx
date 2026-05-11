@@ -1,14 +1,22 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { DataTable } from "@/components/ui/DataTable";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { inventory } from "@/data/mockInventory";
 
 export default function InventoryPage() {
+  const [inventory, setInventory] = useState([]);
+
+  useEffect(() => {
+    fetch("/api/inventory").then((r) => r.json()).then(setInventory).catch(console.error);
+  }, []);
+
   const columns = [
-    { key: "item", header: "Item Name" },
+    { key: "item",         header: "Item Name" },
     { key: "currentStock", header: "Current Stock", render: (row) => `${row.currentStock} ${row.unit}` },
-    { key: "status", header: "Status", render: (row) => <StatusBadge status={row.status} /> },
-    { key: "lastUpdated", header: "Last Updated" }
+    { key: "status",       header: "Status",        render: (row) => <StatusBadge status={row.status} /> },
+    { key: "lastUpdated",  header: "Last Updated" },
   ];
 
   return (
